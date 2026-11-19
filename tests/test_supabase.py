@@ -57,6 +57,16 @@ def test_supabase_initialization_and_transaction_lock(monkeypatch):
     raw.close.assert_not_called()  # returned to the pool, not closed
 
 
+def test_schema_is_set_by_sql_not_startup_options(monkeypatch):
+    # Supabase's pooler ignores the `options` startup parameter; relying on it put tables in `public`.
+    raw = healthy_connection()
+    _, connect = postgres_repo(monkeypatch, raw)
+    assert "options" not in connect.call_args.kwargs
+    statements = [call.args[0] for call in raw.execute.call_args_list]
+    assert statements[0] == "SET search_path TO invoiceiq"
+    assert statements.index("SET search_path TO invoiceiq") < statements.index("CREATE SCHEMA IF NOT EXISTS invoiceiq")
+
+
 def test_connections_are_reused(monkeypatch):
     raw = healthy_connection()
     repo, connect = postgres_repo(monkeypatch, raw)

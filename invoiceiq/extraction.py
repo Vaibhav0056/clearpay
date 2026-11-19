@@ -126,7 +126,7 @@ RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 RETRY_DELAYS = (2, 5)  # seconds; three attempts in total
 
 
-def extract_via_vision_api(pdf: bytes, native_text: str, timeout=75) -> Invoice:
+def extract_via_vision_api(pdf: bytes, native_text: str, timeout=30) -> Invoice:
     """OpenAI-compatible chat-completions endpoint; works with providers that support image_url inputs.
     HF endpoint must expose a compatible chat service and model that accepts images.
     """

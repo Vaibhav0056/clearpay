@@ -59,6 +59,13 @@ POSTGRES_SCHEMA = (SCHEMA.replace("PRAGMA foreign_keys=ON;", "")
                    .replace("created_at TEXT", "created_at TIMESTAMPTZ"))
 
 
+SESSION_SETTINGS = (
+    "SET search_path TO invoiceiq",
+    "SET lock_timeout = '15s'",
+    "SET statement_timeout = '30s'",
+)
+
+
 class PostgresConnection:
     """Small DB-API bridge for this repository's fixed, parameterized SQL.
     `with` commits on success and rolls back on error, then hands the connection back via `release`."""
@@ -176,10 +183,14 @@ class Repository:
         self.initialize()
 
     def _open_postgres(self):
-        return psycopg.connect(
-            self.database_url, sslmode="require", connect_timeout=15,
-            row_factory=dict_row, prepare_threshold=None,
-            options="-csearch_path=invoiceiq,public -clock_timeout=15000 -cstatement_timeout=30000")
+        raw = psycopg.connect(self.database_url, sslmode="require", connect_timeout=15,
+                              row_factory=dict_row, prepare_threshold=None)
+        # Set per session with SQL, not the `options` startup parameter: Supabase's Supavisor
+        # pooler silently drops startup options, which would put every table in `public`.
+        for statement in SESSION_SETTINGS:
+            raw.execute(statement)
+        raw.commit()
+        return raw
 
     def connect(self):
         if self.postgres:
