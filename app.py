@@ -43,6 +43,9 @@ with st.sidebar:
     st.caption("The local fixture parser is designed for bundled synthetic PDFs and is not a universal invoice parser.")
     if st.button("Seed demo procurement database"):
         repo.seed();st.success("Demo vendors and POs are ready")
+    # Local recording aid only: off unless explicitly enabled, so a public deployment can't be wiped.
+    if os.getenv("DEMO_RESET_ENABLED")=="1" and st.button("Reset demo data",help="Deletes all runs and approvals, then re-seeds"):
+        repo.reset_demo();st.session_state.pop("last_result",None);st.rerun()
     st.markdown("**Capabilities**")
     st.caption("Vision API: "+("configured" if os.getenv("OPENAI_COMPATIBLE_MODEL") else "not configured"))
     st.caption("OCR fallback: "+("enabled" if os.getenv("OCR_ENABLED")=="1" else "disabled"))
