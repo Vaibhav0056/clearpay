@@ -47,6 +47,7 @@ with st.sidebar:
     if os.getenv("DEMO_RESET_ENABLED")=="1" and st.button("Reset demo data",help="Deletes all runs and approvals, then re-seeds"):
         repo.reset_demo();st.session_state.pop("last_result",None);st.rerun()
     st.markdown("**Capabilities**")
+    st.caption("Database: "+("Supabase Postgres (connected)" if repo.postgres else "local SQLite (temporary on cloud hosts)"))
     st.caption("Vision API: "+("configured" if os.getenv("OPENAI_COMPATIBLE_MODEL") else "not configured"))
     st.caption("OCR fallback: "+("enabled" if os.getenv("OCR_ENABLED")=="1" else "disabled"))
     st.caption("LangGraph: optional; falls back to Python routing")
