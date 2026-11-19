@@ -122,7 +122,7 @@ def test_api_pdf_and_review(repo, monkeypatch):
     ("06_unapproved_vendor.pdf", "BLOCKED"),
     ("07_wrong_sku.pdf", "NEEDS_REVIEW"),
     ("08_scanned_different_layout.pdf", "NEEDS_REVIEW"),
-    ("09_gst_inclusive_pricing.pdf", "APPROVED"),
+    ("09_gst_inclusive_pricing.pdf", "NEEDS_REVIEW"),  # realistic layout: needs the vision model
 ])
 def test_fixture_decisions(repo, name, status):
     path = ROOT / "fixtures/invoices" / name

@@ -73,8 +73,24 @@ def gst_invoice(**overrides):
     return Invoice.model_validate(data)
 
 
-def test_gst_inclusive_fixture_approved_and_allocates_pre_tax(repo):
+GEMINI_09_OUTPUT = (  # what gemini-3.1-flash-lite actually returned for this PDF (recorded, mocked here)
+    '{"invoice_number":"NOS/26-27/0091","invoice_date":"2026-11-12","vendor_name":"Nova Office Systems",'
+    '"vendor_tax_id":"TAX-NOVA","po_number":"PO-2001","currency":"INR","subtotal":"12000.00",'
+    '"tax_amount":"2160.00","invoice_total":"14160.00","prices_include_tax":true,"line_items":[{'
+    '"description":"Adjustable workstation desk","sku":"DESK-01","quantity":"2","unit_price":"7080.00",'
+    '"line_total":"14160.00"}]}')
+
+
+def test_gst_invoice_unreadable_offline_goes_to_review(repo):
+    # Realistic layout, no labelled fields: the offline parser must not guess.
     result = process_pdf(GST.read_bytes(), GST.name, repo, mode="fixture")
+    assert result["decision"].status == "NEEDS_REVIEW"
+    assert committed(repo) == 0
+
+
+def test_gst_inclusive_pdf_approved_and_allocates_pre_tax(repo, monkeypatch):
+    _mock_model(monkeypatch, [httpx.Response(200, json={"choices": [{"message": {"content": GEMINI_09_OUTPUT}}]})])
+    result = process_pdf(GST.read_bytes(), GST.name, repo, mode="vision")
     assert result["invoice"].prices_include_tax
     assert result["decision"].status == "APPROVED"
     assert codes(result["decision"]) == ["TAX_INCLUSIVE_NORMALISED"]

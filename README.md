@@ -75,9 +75,9 @@ The rule checks in fixtures 01, 05, 06 and 07 are baseline behaviour. The four c
 - **With a vision model** (verified with `gemini-3.1-flash-lite`, about 6 s): every header field and the line item are read correctly from the image, including "Your Order Ref" → `po_number` and "12-Nov-2026" → `2026-11-12`, each with page-level source evidence. The invoice prints no currency, so the model returns `null` rather than guessing; the verified PO's currency (INR) is then used and recorded as an INFO note `CURRENCY_FROM_PO`. → **Approved**. This is safe because the PO is an exact verified match, and amounts in another currency would fail the ±2% price check (tested).
 
 ### 4. GST-inclusive line prices (`09`)
-**Scenario:** Nova bills 2 desks at **₹7,080 each, inclusive of 18% GST**. The PO price is ₹6,000 *pre-tax*. Subtotal ₹12,000, tax ₹2,160, total ₹14,160.
+**Scenario:** a realistic Indian tax invoice from Nova bills 2 desks at **₹7,080 each in a "Rate (incl. GST)" column**, with the note "All prices are inclusive of GST @ 18%" and a tax summary (taxable value ₹12,000, CGST 9% + SGST 9% = ₹2,160, total ₹14,160). The PO price is ₹6,000 *pre-tax*. Nothing on the page says "prices include tax: yes"; the reader has to infer it.
 **Why it is hard:** comparing the printed price with the PO price shows an 18% variance, and the invoice gets wrongly sent to review. Worse, the PO balance is consumed at ₹14,160 instead of ₹12,000, so later legitimate invoices fail.
-**Behaviour:** extraction records `prices_include_tax`. Gross lines must add up to the *total*, and `subtotal + tax = total` must hold; each line's pre-tax value is then `price × subtotal ÷ total`. Price tolerance and PO line balance use the pre-tax value, and the allocation records ₹12,000. → **Approved**, with an INFO finding `TAX_INCLUSIVE_NORMALISED`. The vision model also sets `prices_include_tax` correctly for this invoice (verified with `gemini-3.1-flash-lite`). The tests also show:
+**Behaviour:** extraction records `prices_include_tax`. Gross lines must add up to the *total*, and `subtotal + tax = total` must hold; each line's pre-tax value is then `price × subtotal ÷ total`. Price tolerance and PO line balance use the pre-tax value, and the allocation records ₹12,000. → **Approved**, with an INFO finding `TAX_INCLUSIVE_NORMALISED`. The vision model infers `prices_include_tax` from the layout and reads `12/11/2026` as 12 November (verified with `gemini-3.1-flash-lite`). Offline, the labelled parser cannot read this layout, so the invoice goes to **Needs review** instead of being guessed at. The tests also show:
 - the same invoice read naively → `PRICE_VARIANCE`;
 - a tax-inclusive *overcharge* (₹7,300 incl. GST = ₹6,186 pre-tax, +3.1%) → still caught;
 - gross lines that don't add up → review.
@@ -96,7 +96,7 @@ Expected results when processed **in this order on a fresh database**:
 | 06 | unapproved vendor | Blocked | `UNAPPROVED_VENDOR`, `PO_VENDOR_MISMATCH` |
 | 07 | wrong SKU, similar description | Needs review | `LINE_IDENTITY_UNVERIFIED` (a matching description never stands in for a SKU) |
 | 08 | scanned, different layout | Needs review offline; **Approved** with the vision model | offline: `UNREADABLE_SCAN`, `VENDOR_NOT_EXTRACTED`; model: `CURRENCY_FROM_PO` (INFO) |
-| 09 | GST-inclusive prices | Approved | `TAX_INCLUSIVE_NORMALISED` (INFO) |
+| 09 | GST-inclusive prices, realistic layout | Needs review offline; **Approved** with the vision model | offline: `MISSING_FIELD`, `VENDOR_NOT_EXTRACTED`; model: `TAX_INCLUSIVE_NORMALISED` (INFO) |
 
 Run it yourself:
 
@@ -189,8 +189,8 @@ Extraction results are cached under a key built from the document hash, mode, en
 
 ## What is verified
 
-- **Real vision-model runs** (`gemini-3.1-flash-lite` through Gemini's OpenAI-compatible endpoint): fixture 08, an image-only scan → Approved, all fields correct; fixture 09, GST-inclusive → Approved, `prices_include_tax` detected. That is two documents, not an accuracy benchmark; see the evaluation plan below.
-- **75 automated tests pass** (Python 3.14 / Windows). They cover real fixture PDFs from upload to decision (all nine fixtures), LangGraph routing, concurrent duplicate and capacity races, persisted human corrections, extraction-cache reuse with fresh finance checks, scanned-page detection, model failures and invalid model output (simulated), a model attempting to set pipeline flags, tax-inclusive normalisation, and the Streamlit first render.
+- **Real vision-model runs** (`gemini-3.1-flash-lite` through Gemini's OpenAI-compatible endpoint): fixture 08, an image-only scan → Approved, all fields correct; fixture 09, a GST-inclusive invoice in a realistic layout → Approved, tax-inclusive pricing inferred without any explicit label. That is two documents, not an accuracy benchmark; see the evaluation plan below.
+- **77 automated tests pass** (Python 3.14 / Windows). They cover real fixture PDFs from upload to decision (all nine fixtures), LangGraph routing, concurrent duplicate and capacity races, persisted human corrections, extraction-cache reuse with fresh finance checks, scanned-page detection, model failures and invalid model output (simulated), a model attempting to set pipeline flags, tax-inclusive normalisation, and the Streamlit first render.
 - The API is exercised end-to-end through FastAPI's test client (process, read back, review).
 - **Not verified in this repository:** vision-model accuracy across many real supplier invoices, Tesseract OCR, downloading BGE-M3 and the reranker, live Supabase concurrency. Model calls in tests use explicitly labelled mock transports, which the application itself never uses.
 

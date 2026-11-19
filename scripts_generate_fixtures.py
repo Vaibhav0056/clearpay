@@ -34,12 +34,41 @@ def write(name,inv,qty,total,po="PO-1007",vendor="Acme Supplies Pvt Ltd",tax="TA
 
 
 def write_tax_inclusive():
-    """09: Nova prices desks GST-inclusive (₹7,080 = ₹6,000 + 18%). The PO is pre-tax at ₹6,000.
-    A naive comparison sees an 18% price variance; the pipeline must compare pre-tax prices."""
-    fields=[("Invoice Number","NOS/26-27/0091"),("Invoice Date","2026-11-12"),("Vendor Name","Nova Office Systems"),
-            ("Vendor Tax ID","TAX-NOVA"),("PO Number","PO-2001"),("Currency","INR"),("Prices Include Tax","Yes"),
-            ("Subtotal","12000.00"),("Tax Amount","2160.00"),("Invoice Total","14160.00")]
-    return make("09_gst_inclusive_pricing.pdf",fields,[("Adjustable workstation desk","DESK-01",2,"7080.00","14160.00")])
+    """09: a realistic Indian tax invoice from Nova that quotes desks GST-INCLUSIVE (₹7,080 = ₹6,000 + 18%),
+    while the PO price is pre-tax ₹6,000. Nothing says "prices include tax: yes" - the reader (a vision
+    model) has to infer it from the "Rate (incl. GST)" column and the tax summary. Native text layer, but
+    not the labelled demo format, so the offline parser cannot read it and the invoice goes to review."""
+    p=OUT/"09_gst_inclusive_pricing.pdf"
+    c=canvas.Canvas(str(p),pagesize=A4)
+    c.setFont("Helvetica-Bold",19); c.drawString(50,790,"Nova Office Systems")
+    c.setFont("Helvetica",9)
+    c.drawString(50,776,"14 MG Road, Bengaluru 560001  |  GSTIN / Tax ID: TAX-NOVA  |  accounts@nova.example")
+    c.line(50,766,545,766)
+    c.setFont("Helvetica-Bold",14); c.drawString(420,738,"TAX INVOICE")
+    c.setFont("Helvetica",10)
+    for i,(k,v) in enumerate([("Invoice No.","NOS/26-27/0091"),("Invoice Date","12/11/2026"),("Buyer PO","PO-2001"),("Place of supply","Karnataka")]):
+        c.drawString(360,714-i*16,k); c.drawRightString(545,714-i*16,v)
+    c.drawString(50,714,"Billed to: Example Buyer Ltd")
+    c.drawString(50,698,"Accounts Payable, Pune")
+    y=620
+    c.setFillGray(0.88); c.rect(50,y-5,495,20,fill=1,stroke=0); c.setFillGray(0)
+    c.setFont("Helvetica-Bold",9)
+    for x,h in [(55,"#"),(72,"HSN/SKU"),(140,"Description"),(330,"Qty"),(370,"Rate (incl. GST)"),(470,"Amount (INR)")]: c.drawString(x,y,h)
+    c.setFont("Helvetica",10)
+    for x,v in [(55,"1"),(72,"DESK-01"),(140,"Adjustable workstation desk"),(335,"2")]: c.drawString(x,y-24,v)
+    c.drawRightString(445,y-24,"7,080.00"); c.drawRightString(540,y-24,"14,160.00")
+    c.line(50,y-40,545,y-40)
+    c.setFont("Helvetica-Bold",10); c.drawString(360,y-60,"Invoice total"); c.drawRightString(540,y-60,"14,160.00")
+    c.setFont("Helvetica-Oblique",9); c.drawString(50,y-60,"All prices are inclusive of GST @ 18%.")
+    y2=y-110
+    c.setFont("Helvetica-Bold",10); c.drawString(50,y2,"Tax summary (included in the prices above)")
+    c.setFont("Helvetica",10)
+    for i,(k,v) in enumerate([("Taxable value","12,000.00"),("CGST @ 9%","1,080.00"),("SGST @ 9%","1,080.00"),("Total GST","2,160.00")]):
+        c.drawString(70,y2-20-i*16,k); c.drawRightString(260,y2-20-i*16,v)
+    c.setFont("Helvetica",9); c.drawString(50,y2-110,"Amount in words: Indian Rupees Fourteen Thousand One Hundred Sixty Only")
+    c.setFont("Helvetica-Oblique",8); c.drawString(50,90,"Synthetic demo document. Not a real invoice.")
+    c.save()
+    return p
 
 
 def write_scanned():
