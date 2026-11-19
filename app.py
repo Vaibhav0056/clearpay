@@ -78,7 +78,7 @@ with upload:
             events=[]
             def display_event(e):
                 events.append(e)
-                placeholder.dataframe(events,use_container_width=True,hide_index=True)
+                placeholder.dataframe(events,width="stretch",hide_index=True)
             with st.status("Processing real invoice workflow...",expanded=True) as status:
                 try:
                     result=process_pdf(pdf.getvalue(),pdf.name,repo,mode=mode,policy_dir=ROOT/"fixtures/policies",on_event=display_event)
@@ -112,7 +112,7 @@ with history:
         counts={x:sum(r["status"]==x for r in runs) for x in ["APPROVED","NEEDS_REVIEW","BLOCKED","ERROR"]}
         cols=st.columns(4)
         for col,(name,n) in zip(cols,counts.items()): col.metric(name,n)
-        st.dataframe([{k:v for k,v in r.items() if k in ["id","filename","created_at","status","error"]} for r in runs],use_container_width=True,hide_index=True)
+        st.dataframe([{k:v for k,v in r.items() if k in ["id","filename","created_at","status","error"]} for r in runs],width="stretch",hide_index=True)
         ids=[r["id"] for r in runs]
         selected=st.selectbox("Inspect full audit history",ids)
         record=repo.get_run(selected)
@@ -121,7 +121,7 @@ with history:
             events = json.loads(record["events_json"] or "[]")
             if events:
                 st.dataframe([{"Stage": e["stage"], "Detail": e["detail"], "Elapsed (ms)": e.get("elapsed_ms",0)}
-                              for e in events],hide_index=True,use_container_width=True)
+                              for e in events],hide_index=True,width="stretch")
             if record["decision_json"]:
                 saved_decision = Decision.model_validate_json(record["decision_json"])
                 show_decision(saved_decision)
@@ -141,7 +141,7 @@ with reference:
     samples=sorted((ROOT/"fixtures/invoices").glob("*.pdf"))
     for column,sample in zip(st.columns(3)*((len(samples)+2)//3),samples):
         column.download_button(sample.stem.replace("_"," "),sample.read_bytes(),file_name=sample.name,
-                               mime="application/pdf",key="sample_"+sample.name,use_container_width=True)
+                               mime="application/pdf",key="sample_"+sample.name,width="stretch")
     st.markdown("#### AP policy used for retrieval")
     st.code((ROOT/"fixtures/policies/ap_policy.md").read_text(encoding="utf-8"),language="markdown")
     st.info("Model access requires external inference credentials; all finance decisions are local and deterministic. This app never sends money or posts real invoices.")

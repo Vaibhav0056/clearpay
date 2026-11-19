@@ -29,7 +29,7 @@ def show_evidence(evidence):
             if candidates:
                 st.dataframe([{"PO": c.get("id"), "Currency": c.get("currency"),
                                "Original PO cap": c.get("cap")} for c in candidates],
-                             hide_index=True, use_container_width=True)
+                             hide_index=True, width="stretch")
                 st.caption("Suggestions require verification. The original cap is not the remaining balance.")
             else:
                 st.caption("No open PO candidates found for the verified vendor.")
@@ -39,7 +39,7 @@ def show_evidence(evidence):
                 st.dataframe([{"Invoice item": c.get("invoice_description"),
                                "PO": c.get("po_id"), "PO line": c.get("po_line_id"),
                                "Match": c.get("match_type", c.get("error", "Unavailable"))}
-                              for c in candidates], hide_index=True, use_container_width=True)
+                              for c in candidates], hide_index=True, width="stretch")
         elif entry.get("text"):
             st.markdown("**" + entry.get("section", source) + "**")
             st.text(entry["text"])
@@ -61,21 +61,21 @@ def show_invoice(invoice, decision):
             for label, value in [("Vendor", invoice.vendor_name), ("Vendor tax ID", invoice.vendor_tax_id),
                                  ("Invoice date", invoice.invoice_date), ("PO reference", invoice.po_number),
                                  ("Currency", invoice.currency)]
-        ], hide_index=True, use_container_width=True)
+        ], hide_index=True, width="stretch")
     with right:
         st.markdown("#### Amounts")
         st.dataframe([
             {"Amount": label, "Value": amount(value, invoice.currency)}
             for label, value in [("Subtotal", invoice.subtotal), ("Tax", invoice.tax_amount),
                                  ("Total", invoice.invoice_total)]
-        ], hide_index=True, use_container_width=True)
+        ], hide_index=True, width="stretch")
     st.markdown("#### Line items")
     if invoice.line_items:
         st.dataframe([{"Description": line.description, "SKU": line.sku or "Missing",
                        "Quantity": format(line.quantity, "f"),
                        "Unit price": amount(line.unit_price, invoice.currency),
                        "Line total": amount(line.line_total, invoice.currency)}
-                      for line in invoice.line_items], hide_index=True, use_container_width=True)
+                      for line in invoice.line_items], hide_index=True, width="stretch")
     else:
         st.info("No line items were extracted. Review the source PDF.")
     st.markdown("#### Supporting evidence")
