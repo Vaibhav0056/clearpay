@@ -169,3 +169,26 @@ def test_client_errors_are_not_retried(monkeypatch):
     with pytest.raises(httpx.HTTPStatusError):
         extraction.extract_via_vision_api(SCAN.read_bytes(), "")
     assert len(calls) == 1
+
+
+def test_overloaded_primary_falls_back_to_next_model(monkeypatch):
+    monkeypatch.setenv("OPENAI_COMPATIBLE_FALLBACK_MODELS", "fallback-model")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_BASE_URL", "https://inference.invalid/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_MODEL", "primary-model")
+    monkeypatch.setattr(extraction.time, "sleep", lambda seconds: None)
+    import json as _json
+    seen = []
+    def respond(request):
+        model = _json.loads(request.content)["model"]
+        seen.append(model)
+        if model == "primary-model":
+            return httpx.Response(503)
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"invoice_number":"INV-F"}'}}]})
+    original = httpx.Client
+    monkeypatch.setattr(extraction.httpx, "Client",
+                        lambda **kw: original(transport=httpx.MockTransport(respond), **kw))
+    used = []
+    invoice = extraction.extract_via_vision_api(SCAN.read_bytes(), "", used=used)
+    assert invoice.invoice_number == "INV-F"
+    assert seen == ["primary-model", "primary-model", "fallback-model"]
+    assert used == ["fallback-model"]

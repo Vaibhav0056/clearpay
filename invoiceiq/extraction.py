@@ -126,31 +126,54 @@ RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 RETRY_DELAYS = (2, 5)  # seconds; three attempts in total
 
 
-def extract_via_vision_api(pdf: bytes, native_text: str, timeout=30) -> Invoice:
+def _post_with_retry(client, url, payload, headers, delays):
+    """POST, backing off on overload/rate-limit responses and transport errors."""
+    for attempt in range(len(delays) + 1):
+        final = attempt == len(delays)
+        try:
+            response = client.post(url, json=payload, headers=headers)
+            if response.status_code not in RETRYABLE_STATUS or final:
+                return response
+        except httpx.TransportError:
+            if final:
+                raise
+        time.sleep(delays[attempt])
+
+
+def extract_via_vision_api(pdf: bytes, native_text: str, timeout=30, used: list | None = None) -> Invoice:
     """OpenAI-compatible chat-completions endpoint; works with providers that support image_url inputs.
-    HF endpoint must expose a compatible chat service and model that accepts images.
+    If the primary model stays overloaded, OPENAI_COMPATIBLE_FALLBACK_MODELS (comma-separated) are tried
+    in order. The model that answered is appended to `used`.
     """
     base = os.getenv("OPENAI_COMPATIBLE_BASE_URL", "").rstrip("/")
     key = os.getenv("OPENAI_COMPATIBLE_API_KEY", "")
     model = os.getenv("OPENAI_COMPATIBLE_MODEL", "")
     if not base or not model:
         raise RuntimeError("Vision endpoint not configured")
+    models = [model] + [m.strip() for m in os.getenv("OPENAI_COMPATIBLE_FALLBACK_MODELS", "").split(",")
+                        if m.strip() and m.strip() != model]
     content = [{"type":"text","text":"Invoice native text (may be incomplete):\n"+native_text[:20000]}]
     for image in render_pages(pdf):
         content.append({"type":"image_url","image_url":{"url":image}})
     data = {"model":model,"messages":[{"role":"system","content":EXTRACTION_INSTRUCTIONS},{"role":"user","content":content}],"temperature":0,"max_tokens":2400}
     headers = {"Authorization":f"Bearer {key}"} if key else {}
     with httpx.Client(timeout=timeout) as client:
-        for attempt in range(len(RETRY_DELAYS) + 1):
+        for index, candidate in enumerate(models):
+            last = index == len(models) - 1
+            # A model with a fallback behind it gets one retry; the last model gets the full back-off.
+            delays = RETRY_DELAYS if last else RETRY_DELAYS[:1]
             try:
-                response = client.post(base+"/chat/completions",json=data,headers=headers)
-                if response.status_code not in RETRYABLE_STATUS or attempt == len(RETRY_DELAYS):
-                    break
+                response = _post_with_retry(client, base+"/chat/completions", {**data, "model": candidate},
+                                            headers, delays)
             except httpx.TransportError:
-                if attempt == len(RETRY_DELAYS):
+                if last:
                     raise
-            time.sleep(RETRY_DELAYS[attempt])  # provider overloaded / rate limited: back off, retry
+                continue
+            if response.status_code not in RETRYABLE_STATUS or last:
+                break
         response.raise_for_status()
+        if used is not None:
+            used.append(candidate)
         content=response.json()["choices"][0]["message"]["content"]
     if isinstance(content,list):
         content="".join(p.get("text", "") for p in content if isinstance(p,dict))
@@ -166,7 +189,9 @@ def extract_invoice(pdf: bytes, doc: Document, mode: str="auto") -> tuple[Invoic
     if mode not in {"auto", "fixture", "vision"}:
         raise ValueError("Unknown extraction mode")
     if mode == "vision" or (mode == "auto" and os.getenv("OPENAI_COMPATIBLE_MODEL")):
-        return extract_via_vision_api(pdf, doc.text), "vision_api"
+        used = []
+        invoice = extract_via_vision_api(pdf, doc.text, used=used)
+        return invoice, f"vision_api ({used[0]})" if used else "vision_api"
     # The fallback is intentionally not allowed to approve arbitrary formats.
     invoice = extract_fixture_format(doc.text)
     if doc.scanned and len(re.sub(r"\W", "", doc.text)) < 35:
