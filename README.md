@@ -190,7 +190,7 @@ Extraction results are cached under a key built from the document hash, mode, en
 ## What is verified
 
 - **Real vision-model runs** (`gemini-3.1-flash-lite` through Gemini's OpenAI-compatible endpoint): fixture 08, an image-only scan → Approved, all fields correct; fixture 09, GST-inclusive → Approved, `prices_include_tax` detected. That is two documents, not an accuracy benchmark; see the evaluation plan below.
-- **67 automated tests pass** (Python 3.14 / Windows). They cover real fixture PDFs from upload to decision (all nine fixtures), LangGraph routing, concurrent duplicate and capacity races, persisted human corrections, extraction-cache reuse with fresh finance checks, scanned-page detection, model failures and invalid model output (simulated), a model attempting to set pipeline flags, tax-inclusive normalisation, and the Streamlit first render.
+- **75 automated tests pass** (Python 3.14 / Windows). They cover real fixture PDFs from upload to decision (all nine fixtures), LangGraph routing, concurrent duplicate and capacity races, persisted human corrections, extraction-cache reuse with fresh finance checks, scanned-page detection, model failures and invalid model output (simulated), a model attempting to set pipeline flags, tax-inclusive normalisation, and the Streamlit first render.
 - The API is exercised end-to-end through FastAPI's test client (process, read back, review).
 - **Not verified in this repository:** vision-model accuracy across many real supplier invoices, Tesseract OCR, downloading BGE-M3 and the reranker, live Supabase concurrency. Model calls in tests use explicitly labelled mock transports, which the application itself never uses.
 

@@ -7,6 +7,7 @@ import base64
 import json
 import os
 import re
+import time
 from dataclasses import dataclass
 import pymupdf
 import httpx
@@ -121,6 +122,10 @@ Include evidence as a mapping of key to {source_text, page} when available.
 Do not make approval decisions."""
 
 
+RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+RETRY_DELAYS = (2, 5)  # seconds; three attempts in total
+
+
 def extract_via_vision_api(pdf: bytes, native_text: str, timeout=75) -> Invoice:
     """OpenAI-compatible chat-completions endpoint; works with providers that support image_url inputs.
     HF endpoint must expose a compatible chat service and model that accepts images.
@@ -136,7 +141,15 @@ def extract_via_vision_api(pdf: bytes, native_text: str, timeout=75) -> Invoice:
     data = {"model":model,"messages":[{"role":"system","content":EXTRACTION_INSTRUCTIONS},{"role":"user","content":content}],"temperature":0,"max_tokens":2400}
     headers = {"Authorization":f"Bearer {key}"} if key else {}
     with httpx.Client(timeout=timeout) as client:
-        response = client.post(base+"/chat/completions",json=data,headers=headers)
+        for attempt in range(len(RETRY_DELAYS) + 1):
+            try:
+                response = client.post(base+"/chat/completions",json=data,headers=headers)
+                if response.status_code not in RETRYABLE_STATUS or attempt == len(RETRY_DELAYS):
+                    break
+            except httpx.TransportError:
+                if attempt == len(RETRY_DELAYS):
+                    raise
+            time.sleep(RETRY_DELAYS[attempt])  # provider overloaded / rate limited: back off, retry
         response.raise_for_status()
         content=response.json()["choices"][0]["message"]["content"]
     if isinstance(content,list):

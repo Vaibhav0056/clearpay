@@ -116,3 +116,40 @@ def test_unprinted_currency_cannot_hide_wrong_currency_amounts(repo):
                       line_items=[dict(description="Adjustable workstation desk", sku="DESK-01", quantity="2",
                                        unit_price="72.00", line_total="144.00")])
     assert "PRICE_VARIANCE" in codes(evaluate_invoice(repo, inv, "usd", commit=False))
+
+
+def _mock_model(monkeypatch, responses):
+    monkeypatch.setenv("OPENAI_COMPATIBLE_BASE_URL", "https://inference.invalid/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_MODEL", "test-injected-model")
+    monkeypatch.setattr(extraction.time, "sleep", lambda seconds: None)
+    calls = []
+    def respond(request):
+        calls.append(1)
+        return responses[min(len(calls), len(responses)) - 1]
+    original = httpx.Client
+    monkeypatch.setattr(extraction.httpx, "Client",
+                        lambda **kw: original(transport=httpx.MockTransport(respond), **kw))
+    return calls
+
+
+def test_transient_model_overload_is_retried(monkeypatch):
+    ok = httpx.Response(200, json={"choices": [{"message": {"content": '{"invoice_number":"INV-9"}'}}]})
+    calls = _mock_model(monkeypatch, [httpx.Response(503), httpx.Response(429), ok])
+    assert extraction.extract_via_vision_api(SCAN.read_bytes(), "").invoice_number == "INV-9"
+    assert len(calls) == 3
+
+
+def test_persistent_model_outage_fails_without_endless_retries(monkeypatch):
+    import pytest
+    calls = _mock_model(monkeypatch, [httpx.Response(503)])
+    with pytest.raises(httpx.HTTPStatusError):
+        extraction.extract_via_vision_api(SCAN.read_bytes(), "")
+    assert len(calls) == 3
+
+
+def test_client_errors_are_not_retried(monkeypatch):
+    import pytest
+    calls = _mock_model(monkeypatch, [httpx.Response(401)])
+    with pytest.raises(httpx.HTTPStatusError):
+        extraction.extract_via_vision_api(SCAN.read_bytes(), "")
+    assert len(calls) == 1

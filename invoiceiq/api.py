@@ -3,6 +3,7 @@ Exposes a PDF byte-stream endpoint; protect with authentication before public de
 """
 from __future__ import annotations
 import os
+from functools import lru_cache
 from pathlib import Path
 from fastapi import FastAPI, Request, Header, HTTPException
 from fastapi.responses import Response
@@ -13,8 +14,14 @@ from .workflow import process_pdf, review_and_recheck
 app=FastAPI(title="ClearPay API",version="0.1.0")
 ROOT=Path(__file__).resolve().parent.parent
 
+@lru_cache(maxsize=4)
+def _repository(path: str, database_url: str) -> Repository:
+    # One repository (and Postgres connection pool) per configured database, shared by requests.
+    return Repository(path)
+
+
 def database():
-    return Repository(os.getenv("INVOICEIQ_DB",str(ROOT/"invoiceiq.sqlite")))
+    return _repository(os.getenv("INVOICEIQ_DB",str(ROOT/"invoiceiq.sqlite")), os.getenv("SUPABASE_DB_URL",""))
 
 @app.get("/health")
 def health():

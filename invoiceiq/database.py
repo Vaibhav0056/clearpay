@@ -1,7 +1,10 @@
 from __future__ import annotations
 import sqlite3
 import os
+import threading
+import time
 import psycopg
+from psycopg import pq
 from psycopg.rows import dict_row
 from dotenv import load_dotenv
 from contextlib import contextmanager
@@ -57,9 +60,12 @@ POSTGRES_SCHEMA = (SCHEMA.replace("PRAGMA foreign_keys=ON;", "")
 
 
 class PostgresConnection:
-    """Small DB-API bridge for this repository's fixed, parameterized SQL."""
-    def __init__(self, connection):
+    """Small DB-API bridge for this repository's fixed, parameterized SQL.
+    `with` commits on success and rolls back on error, then hands the connection back via `release`."""
+    def __init__(self, connection, release=None):
         self.raw = connection
+        self._release = release
+        self._open = True
 
     def execute(self, sql, parameters=()):
         return self.raw.execute(sql.replace("?", "%s"), parameters)
@@ -69,11 +75,17 @@ class PostgresConnection:
             cursor.executemany(sql.replace("?", "%s"), parameters)
 
     def __enter__(self):
-        self.raw.__enter__()
         return self
 
-    def __exit__(self, *args):
-        return self.raw.__exit__(*args)
+    def __exit__(self, exc_type, *rest):
+        try:
+            if exc_type is None:
+                self.raw.commit()
+            else:
+                self.raw.rollback()
+        finally:
+            self.close()
+        return False
 
     def commit(self):
         self.raw.commit()
@@ -82,7 +94,62 @@ class PostgresConnection:
         self.raw.rollback()
 
     def close(self):
-        self.raw.close()
+        if not self._open:
+            return
+        self._open = False
+        if self._release:
+            self._release(self.raw)
+        else:
+            self.raw.close()
+
+
+class PostgresPool:
+    """Reuses open connections: a new TLS connection to Supabase costs ~1-2 s, a query on an open
+    one ~0.15 s, and one invoice run makes ~15 database calls. Thread-safe; broken or
+    mid-transaction connections are discarded, never reused."""
+    MAX_IDLE = 4
+    RECHECK_AFTER = 60  # seconds idle before a liveness check (poolers drop idle clients)
+
+    def __init__(self, open_connection):
+        self._open_connection = open_connection
+        self._idle = []
+        self._lock = threading.Lock()
+
+    def borrow(self):
+        while True:
+            with self._lock:
+                item = self._idle.pop() if self._idle else None
+            if item is None:
+                return self._open_connection()
+            raw, since = item
+            if time.monotonic() - since < self.RECHECK_AFTER:
+                return raw
+            try:
+                raw.execute("SELECT 1")
+                raw.rollback()
+                return raw
+            except Exception:
+                self._discard(raw)
+
+    def release(self, raw):
+        try:
+            healthy = (not raw.closed and not raw.broken
+                       and raw.info.transaction_status == pq.TransactionStatus.IDLE)
+        except Exception:
+            healthy = False
+        if healthy:
+            with self._lock:
+                if len(self._idle) < self.MAX_IDLE:
+                    self._idle.append((raw, time.monotonic()))
+                    return
+        self._discard(raw)
+
+    @staticmethod
+    def _discard(raw):
+        try:
+            raw.close()
+        except Exception:
+            pass
 
 
 class ClosingConnection(sqlite3.Connection):
@@ -102,16 +169,21 @@ class Repository:
             raise ValueError("SUPABASE_DB_URL must be a PostgreSQL connection string (postgresql://...) "
                              "from Supabase > Connect > Session pooler, not the https:// project URL")
         self.integrity_errors = (sqlite3.IntegrityError, psycopg.IntegrityError)
-        if not self.postgres:
+        if self.postgres:
+            self.pool = PostgresPool(self._open_postgres)
+        else:
             Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         self.initialize()
 
+    def _open_postgres(self):
+        return psycopg.connect(
+            self.database_url, sslmode="require", connect_timeout=15,
+            row_factory=dict_row, prepare_threshold=None,
+            options="-csearch_path=invoiceiq,public -clock_timeout=15000 -cstatement_timeout=30000")
+
     def connect(self):
         if self.postgres:
-            return PostgresConnection(psycopg.connect(
-                self.database_url, sslmode="require", connect_timeout=15,
-                row_factory=dict_row, prepare_threshold=None,
-                options="-csearch_path=invoiceiq,public -clock_timeout=15000 -cstatement_timeout=30000"))
+            return PostgresConnection(self.pool.borrow(), release=self.pool.release)
         c = sqlite3.connect(self.path, timeout=15, factory=ClosingConnection)
         c.row_factory = sqlite3.Row
         c.execute("PRAGMA foreign_keys=ON")
