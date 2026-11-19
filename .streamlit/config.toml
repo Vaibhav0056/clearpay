@@ -1,0 +1,6 @@
+[server]
+# Matches the pipeline's own 10 MB PDF limit.
+maxUploadSize = 10
+
+[browser]
+gatherUsageStats = false
